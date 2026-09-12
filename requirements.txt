@@ -1,0 +1,6 @@
+numpy==1.26.4
+faiss-cpu
+# optional: semantic embeddings (falls back to hashed vectors if absent)
+# sentence-transformers
+# optional: postgres source-of-truth backend (falls back to SQLite if absent)
+# psycopg[binary]
