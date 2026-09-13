@@ -140,7 +140,7 @@ The repair@0s footgun on a competent pipeline is recall@5 0.5897 → 0.2733 and 
 
 ## 8. Limitations
 
-- Synthetic factoid corpus, unique entity ids, one query per document. Not Confluence.
+- Synthetic factoid corpus, unique entity ids, one query per document. Not an enterprise wiki or ticket corpus.
 - Exact FAISS Flat, not HNSW; no remote ANN (Qdrant / Pinecone deferred).
 - Extractive citation, not an LLM. A generator can still ignore a fresh span or invent a citation.
 - Deleted-entity queries are answered from live neighbors under drop (173/1000). Fresh-but-wrong. Missing-source ⇒ abstain is future work.
