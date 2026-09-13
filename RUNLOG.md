@@ -142,3 +142,35 @@
 - Hashed fallback uses TF-IDF weighting (`HashEmbedder.fit` over the corpus),
   as the task spec anticipated ("hashed TF-IDF"). Without IDF, template
   boilerplate drowned entity discriminators.
+
+## 2026-09-12 — reviewer corrections (Sri, verified against c2555a6 + raw JSON)
+
+- Cost language tightened: the version join is free (hash-grid max p95
+  1.39 ms; drop/flag sub-ms); **repair is not** once the embedder is real
+  (MiniLM repair@d0s p95 = 113 ms on crash/all-faults — read-path re-embed).
+- Flag unbundled from drop: flag@d0s leaves stale-hit@5 unchanged
+  (all-faults 0.4922 → 0.4922); it only zeroes stale-citation via
+  abstention (0.237 on all-faults). Flag is a citation policy, drop is the
+  retriever result.
+- repair@d0s on the competent pipeline is a footgun: R@5 0.5897 → 0.2733,
+  acc 0.497 → 0.343. Operating points are drop@5s/drop@60s and repair at a
+  Δ the pipeline can meet — never Δ=0.
+- Deleted-query finding: 173/1000 queries target deleted docs; under
+  drop@5s the extractor cites a live neighbor (abstention 0.0000,
+  correct 0.0000) — fresh-but-wrong, not stale. Correctness is reported
+  **excluding deleted** (cap 1 − 0.173 = 0.827 under any answering policy);
+  "missing source ⇒ abstain" left as the explicit next mechanism.
+- cite.summarize now emits `stale_citation_rate_emitted` (stale | emitted
+  answers); README language-discipline bullet corrected (rate is over all
+  queries; the conditioned metric is the new column). Hash grid re-run
+  2026-09-12 on Postgres reproduces all committed cells exactly.
+- README headline table pointers fixed: un-suffixed single_fault_table.md /
+  delay_cdf_table.md / denominators.md are MiniLM outputs (R@5 ~0.18);
+  `_hash.md` files are the primary tables.
+- ID-recall note: recall@k counts chunk_id v1 as a hit, so part of the
+  drop recall tax is the metric no longer crediting stale ids. Stated next
+  to the tax in paper/results.md.
+- Environment: postgres kept dying on this VM and pg_hba had reverted to
+  scram-sha-256 (TCP connects hang on password prompt); re-applied
+  host-trust for 127.0.0.1/32 and ::1/128 and reloaded. The silent SQLite
+  fallback masked this — consider failing loud when RAGC_PG_DSN is set.

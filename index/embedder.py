@@ -17,6 +17,20 @@ DIM = 384
 _TOKEN = re.compile(r"[a-z0-9]+")
 
 
+def _sanitize_proxy_env():
+    """httpx (via sentence-transformers) chokes on bracketed IPv6 literals
+    like [::1] in no_proxy/NO_PROXY ("Invalid port: ':1]'"), silently
+    dropping us to the hashed fallback. Strip those entries before the
+    sentence-transformers import. Recorded 2026-09-12."""
+    for var in ("no_proxy", "NO_PROXY"):
+        val = os.environ.get(var)
+        if not val:
+            continue
+        kept = [p for p in val.split(",")
+                if not (p.strip().startswith("[") and "]" in p)]
+        os.environ[var] = ",".join(kept)
+
+
 class HashEmbedder:
     """Deterministic hashed TF-IDF embedder (unigrams+bigrams), L2-normalized."""
 
@@ -63,12 +77,17 @@ class Embedder:
         self._st = None
         force = os.environ.get("RAGC_EMBEDDER", "auto")  # hash|minilm|auto
         if force in ("auto", "minilm"):
+            _sanitize_proxy_env()
             try:
                 from sentence_transformers import SentenceTransformer
                 self._st = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
                 self.dim = self._st.get_sentence_embedding_dimension()
                 self.backend = "minilm"
             except Exception as e:  # offline / no torch / download failed
+                if force == "minilm":
+                    raise RuntimeError(
+                        f"RAGC_EMBEDDER=minilm but sentence-transformers failed: {e}"
+                    ) from e
                 print(f"[embedder] sentence-transformers unavailable ({e}); "
                       f"using hashed fallback")
         if self._st is None:

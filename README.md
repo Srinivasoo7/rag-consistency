@@ -10,8 +10,10 @@ bound.** This repo is a *harness*, not a framework.
 - **stale-hit@k** is the RETRIEVAL-layer metric: fraction of top-k hits whose
   indexed version is older than the source version (or whose source row is
   deleted). No answers are generated at retrieval time.
-- **stale-citation rate** is the GENERATION-layer metric: fraction of
-  *emitted* answers whose span fails the source-version join.
+- **stale-citation rate** is the GENERATION-layer metric: fraction of *all*
+  queries whose emitted span fails the source-version join. `stale | emitted`
+  conditions on emitted answers only — the two coincide when abstention is
+  ~0 and diverge under abstain-heavy policies (flag).
 - These are different numbers. The paper's claim is the second.
 - Fault mixes are described only as "under this fault mix (defined in
   FAULT_MIX.md)" — never "a realistic fault mix".
@@ -54,10 +56,13 @@ bound.** This repo is a *harness*, not a framework.
 
 - `FAULT_MIX.md` — the all-faults composition card (exact operators).
 - `DETERMINISM.md` — seeds, embedder spec, FAISS index type.
-- `data/single_fault_table.md` — headline retrieval table (single faults lead;
-  all-faults as labeled upper bound).
-- `data/delay_cdf_table.md` — delay faults via time-to-visible/purge CDFs.
-- `data/denominators.md` — corpus/query denominators + provenance.
+- `data/single_fault_table_hash.md` — headline retrieval table (single faults lead;
+  all-faults as labeled upper bound). **Hash (primary embedder) tables are the
+  `_hash.md` files**; the un-suffixed `single_fault_table.md`,
+  `delay_cdf_table.md`, and `denominators.md` are MiniLM outputs (R@5 ~0.18 —
+  do not quote those as headline numbers).
+- `data/delay_cdf_table_hash.md` — delay faults via time-to-visible/purge CDFs.
+- `data/denominators_hash.md` — corpus/query denominators + provenance.
 - `data/join_before_after_hash.md` — the paper's key figure (retrieval
   layer, primary embedder). `_minilm` variants are the robustness check.
 - `data/citation_before_after_hash.md` — generation-layer stale-citation

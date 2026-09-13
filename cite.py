@@ -56,22 +56,35 @@ def extractive_cite(rec, store, index, join_applied: bool, rows=None):
 
 
 def summarize(cites):
-    """Aggregate citation records into rates (overall + by query kind)."""
+    """Aggregate citation records into rates (overall + by query kind).
+
+    stale_citation_rate is over ALL queries (n). stale_citation_rate_emitted
+    conditions on emitted answers only (n - abstentions); the two coincide
+    when abstention is ~0 and diverge under flag/abstain-heavy policies.
+    """
     n = len(cites)
+    emitted = [c for c in cites if not c["abstain"]]
+    m = len(emitted)
     out = {"n": n,
            "stale_citation_rate": sum(c["stale_cite"] for c in cites) / n,
+           "stale_citation_rate_emitted": (sum(c["stale_cite"] for c in emitted) / m
+                                           if m else None),
            "abstention_rate": sum(c["abstain"] for c in cites) / n,
            "answer_correct_rate": sum(c["answer_correct"] for c in cites) / n}
     by_kind = {}
     for c in cites:
         by_kind.setdefault(c["kind"], []).append(c)
     for kind, cs in by_kind.items():
-        m = len(cs)
+        k = len(cs)
+        ke = [x for x in cs if not x["abstain"]]
+        me = len(ke)
         by_kind[kind] = {
-            "n": m,
-            "stale_citation_rate": sum(x["stale_cite"] for x in cs) / m,
-            "abstention_rate": sum(x["abstain"] for x in cs) / m,
-            "answer_correct_rate": sum(x["answer_correct"] for x in cs) / m,
+            "n": k,
+            "stale_citation_rate": sum(x["stale_cite"] for x in cs) / k,
+            "stale_citation_rate_emitted": (sum(x["stale_cite"] for x in ke) / me
+                                            if me else None),
+            "abstention_rate": sum(x["abstain"] for x in cs) / k,
+            "answer_correct_rate": sum(x["answer_correct"] for x in cs) / k,
         }
     out["by_kind"] = by_kind
     return out

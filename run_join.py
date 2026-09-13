@@ -194,10 +194,14 @@ def write_citation_table(rows, data_dir, suffix=""):
         "> The generator emits the top-1 joined-fresh span (top-1 raw ANN hit",
         "> when the join is off). stale-citation = emitted span fails the",
         "> source-version join (stale or deleted). This is NOT stale-hit@5.",
+        "> `stale | emitted` conditions on emitted answers only; it equals",
+        "> stale-citation when abstention is ~0 and diverges under flag.",
         "",
-        "| scenario | join | stale-citation | abstention | answer-correct |",
-        "|---|---|---|---|---|",
+        "| scenario | join | stale-citation | stale \\| emitted | abstention | answer-correct |",
+        "|---|---|---|---|---|---|",
     ]
+    def _em(v):
+        return "n/a" if v is None else f"{v:.4f}"
     for name in SINGLE_FAULTS:
         for cfg in cfgs:
             r = _row_for(rows, name, cfg)
@@ -206,11 +210,12 @@ def write_citation_table(rows, data_dir, suffix=""):
             c = r["citation"]
             lines.append(
                 f"| {name} | {cfg} | {c['stale_citation_rate']:.4f} | "
+                f"{_em(c['stale_citation_rate_emitted'])} | "
                 f"{c['abstention_rate']:.4f} | {c['answer_correct_rate']:.4f} |")
     lines += ["", "## by query kind (join off vs drop@d5s)",
               "",
-              "| scenario | join | kind | stale-citation | abstention | answer-correct |",
-              "|---|---|---|---|---|---|"]
+              "| scenario | join | kind | stale-citation | stale \\| emitted | abstention | answer-correct |",
+              "|---|---|---|---|---|---|---|"]
     for name in SINGLE_FAULTS:
         for cfg in ["off", "drop@d5s"]:
             r = _row_for(rows, name, cfg)
@@ -219,6 +224,7 @@ def write_citation_table(rows, data_dir, suffix=""):
             for kind, b in r["citation"]["by_kind"].items():
                 lines.append(
                     f"| {name} | {cfg} | {kind} | {b['stale_citation_rate']:.4f} | "
+                    f"{_em(b['stale_citation_rate_emitted'])} | "
                     f"{b['abstention_rate']:.4f} | {b['answer_correct_rate']:.4f} |")
     path = os.path.join(data_dir, f"citation_before_after{suffix}.md")
     with open(path, "w") as f:
