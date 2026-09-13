@@ -8,7 +8,7 @@ Draft for `paper/body.md`. Section 3 is merged from `paper/consistency_classes.m
 
 Retrieval-augmented generation is two stores pretending to be one: a strongly consistent document store (the source of truth) and an eventually consistent vector index (the retrieval layer). There is no shared commit. When a document is updated or deleted, the index lags — or never converges, if the embedding worker fails silently. During that window the retriever returns stale vectors and the generator cites text that is no longer current. This is a systems bug, not a model bug.
 
-We make three contributions. First, we define retrieval consistency for the two-store case: four classes (index-available, version-coherent, bounded-Δ, fresh-Δ), and the distinction between retrieval-layer *stale-hit@k* and generation-layer *stale-citation*. Second, we measure both under controlled updates, deletes, and injected pipeline faults on a 1,000-document split store (Postgres + FAISS). A competent incremental upsert yields stale-hit@5 = 0; under single faults the rate is 0.07–0.39; under a constructed all-faults composition it is 0.49. Delay-only faults converge by evaluation time — the window is the result, reported as time-to-visible. Third, a version-joined retriever that drops hits failing a source-version join (or exceeding Δ) drives stale-hit@5 and extractive stale-citation to 0.0000 in every fault scenario we tested. The tax is recall (all-faults 0.58 → 0.39), not join latency. A freshness SLA Δ is enforceable if and only if Δ ≥ pipeline lag T; demanding Δ = 5s from a 30s pipeline collapses recall 0.59 → 0.27.
+We make three contributions. First, we define retrieval consistency for the two-store case: four classes (index-available, version-coherent, bounded-Δ, fresh-Δ), and the distinction between retrieval-layer *stale-hit@k* and generation-layer *stale-citation*. Second, we measure both under controlled updates, deletes, and injected pipeline faults on a 1,000-document split store (Postgres + FAISS). A competent incremental upsert yields stale-hit@5 = 0; under single faults the rate is 0.07–0.39; under a constructed all-faults composition it is 0.49. Delay-only faults converge by evaluation time — the window is the result, reported as time-to-visible. Third, we quantify the cost of enforcing freshness at query time. A version-joined retriever that drops hits failing a source-version join drives stale-hit@5 and extractive stale-citation to 0.0000 in every fault scenario we tested — the expected conformance of a mechanism to its own predicate, not a discovery. The empirical content is the tax: recall (all-faults 0.58 → 0.39), not join latency. A freshness SLA Δ is enforceable if and only if Δ ≥ pipeline lag T; demanding Δ = 5s from a 30s pipeline collapses recall 0.59 → 0.27. And the lag bound buys no correctness the version join does not already provide — it is a pure recall tax, the price of a freshness SLO.
 
 We do not claim hallucination-free RAG, temporal supersession of coexisting facts, or a production incidence rate. The result is a lower stale-citation rate plus an explicit freshness SLO.
 
@@ -65,7 +65,7 @@ For a chunk at evaluation time t:
 
 Inclusions: fresh-Δ ⇒ version-coherent ⇒ index-available. Bounded-Δ is orthogonal to coherence — it constrains *when* the worker ran, not *what* it wrote. The Δ=0 footgun (results) is the degenerate case: a bound demanded with no regard for the pipeline’s actual lag rejects laggy-but-coherent hits and collapses recall on a healthy pipeline.
 
-**Read-your-writes** for embeddings is fresh-Δ with Δ ≥ T for the writer’s own pipeline lag T. We do not implement a session cache; the SLA curve shows the boundary is sharp, not gradual: Δ ≥ T preserves recall, Δ < T collapses it. Enforceability is a property of the (Δ, T) pair, not of the join mechanism.
+**Read-your-writes** for embeddings is fresh-Δ with Δ ≥ T for the writer’s own pipeline lag T. We do not implement a session cache; the SLA curve shows the boundary is sharp, not gradual: Δ ≥ T preserves recall, Δ < T collapses it. Enforceability is a property of the (Δ, T) pair, not of the join mechanism. The lag half of fresh-Δ contributes no staleness protection beyond the version half: the join tests version, content hash, and deletion before lag, and any genuinely stale entry has indexed_at < source.updated_at (lag < 0 ≤ Δ), so the Δ gate can only ever remove coherent-but-late hits. Δ is therefore a pure recall tax, not additional correctness.
 
 ### Why the classes are invisible to retrieval
 
@@ -90,7 +90,7 @@ Three policies on failure:
 
 - **drop** — discard the hit; fill from the over-fetched tail; truncate to k. This is the retriever result. It enforces fresh-Δ.
 - **flag** — keep the hit, mark ok=false. Citation must skip it. Stale-hit@k does not move. This is a citation policy.
-- **repair** — if the failure is version-diverged, re-fetch the current source text and re-embed on the read path; deleted / missing hits are still dropped. Repair at Δ=0 on a healthy 1s pipeline is a footgun: laggy-but-coherent hits are not repaired, they are dropped.
+- **repair** — if the failure is version-diverged, re-fetch the current source text and re-embed on the read path; deleted / missing hits are still dropped. Repair changes cited text, not ranking: the hit keeps the rank its stale vector earned (no re-search), and the read path mutates the index payload while retaining the original indexed_at. Repair at Δ=0 on a healthy 1s pipeline is a footgun: laggy-but-coherent hits are not repaired, they are dropped.
 
 The join is a primary-key lookup. Repair is an embed.
 
@@ -108,6 +108,8 @@ The join is a primary-key lookup. Repair is an embed.
 
 **Worker and clock.** A virtual clock drives lag. Delay faults are simulated, never slept. The competent worker drains at t=61 (1s after commit). Evaluation is later (1h–2h of virtual time), so delay-only scenarios have eval-time stale-hit = 0 by construction; their result is the time-to-visible value T, which feeds the SLA curve.
 
+**Candidate budget.** Drop and repair retrieve 3k candidates and truncate to k after the join; join-off and flag retrieve k. Recall@5 is computed on the final top-5 handed to the generator in both arms — the deployment-relevant comparison — but the candidate budgets differ, so the tables compare deployed configurations, not equal-budget retrieval.
+
 **Faults.** Single operators: drop 10% of upserts; no tombstones; partial 2-of-3 chunk upserts; crash after 50% of the due batch. `all-faults` composes those four in that order (`FAULT_MIX.md`). It is a constructed upper bound, not an incidence estimate.
 
 **Embedders.** Primary: hashed unigram+bigram TF-IDF, 384-d, L2-normalized, IDF fitted on the corpus. Robustness: all-MiniLM-L6-v2. On this entity-id corpus MiniLM recall@5 is 0.18 vs 0.59 for hash; subword embeddings do not separate numeric suffixes. Mechanism tables use hash. MiniLM is Appendix A. An explicit `RAGC_EMBEDDER=minilm` that cannot load the model fails loud.
@@ -120,7 +122,7 @@ The join is a primary-key lookup. Repair is an embed.
 
 ## 6. Results
 
-See `paper/results.md`. Headline: `drop@5s` drives stale-hit@5 and extractive stale-citation to 0.0000 on every single fault and on the labeled all-faults bound; the tax is recall and neighbor-substitution on deleted entities, not join latency; a freshness SLA is a step function of Δ versus T.
+See `paper/results.md`. Headline: silent worker faults expose stale-hit@5 of 0.07–0.39 singly and 0.49 composed (the measurement); the version join restores 0.0000 stale-hit and extractive stale-citation (conformance, not discovery); the bill is recall (all-faults 0.58 → 0.39) and neighbor-substitution on deleted entities, not join latency. A freshness SLA is a step function of Δ versus T, and the lag bound contributes recall loss with no additional correctness.
 
 The repair@0s footgun on a competent pipeline is recall@5 0.5897 → 0.2733 and correctness ex-deleted 0.601 → 0.415.
 
@@ -132,6 +134,8 @@ The repair@0s footgun on a competent pipeline is recall@5 0.5897 → 0.2733 and 
 
 **Unified stores.** Budigi and Sirigiri (arXiv:2605.03275) measure a 3.54 ms mean window between two Postgres tables merged in application code, and 0 ms when document and embedding share a transaction, on 50k documents. That result is “atomic co-location can zero the window inside one engine.” It is not a measurement of object-store + remote ANN lag, and it is not a refutation of a split-stack study. Production RAG at scale is still usually split; residual windows after competent CDC (dropped events, untombstoned deletes, partial batches) are the measurement target here.
 
+**Database freshness lineage.** Mechanically, the version join is version-stamped reads with read repair, applied to a vector index. Bounded staleness (Bailis et al., PBS, PVLDB 2012), session guarantees (read-your-writes, monotonic reads), Dynamo-style read repair, and incremental view maintenance all study the same shape: a derived store checked against its source at read time. The novelty claimed here is not the join but the measurement built on it: the two-layer metric separation (retrieval stale-hit vs generation stale-citation, which diverge under abstain-heavy policies), the quantified query-time cost of freshness (recall tax, the Δ=0 footgun), and the Δ ≥ T enforceability boundary. We claim the definitions and the numbers, not the mechanism.
+
 **Industry practice.** Incremental reindex, CDC, content hashes, tombstones, alias swaps, and `valid_from` filters are known. They are the competent row of our table (stale-hit = 0 when the worker finishes). This paper is the residual under silent failure, plus a query-time join that does not trust the worker.
 
 **Other “consistency” in RAG.** Output-stability across paraphrases, multilingual context use, and position-bias regularization are generator properties. They are unrelated to two-store coherence.
@@ -141,7 +145,10 @@ The repair@0s footgun on a competent pipeline is recall@5 0.5897 → 0.2733 and 
 ## 8. Limitations
 
 - Synthetic factoid corpus, unique entity ids, one query per document. Not an enterprise wiki or ticket corpus.
-- Exact FAISS Flat, not HNSW; no remote ANN (Qdrant / Pinecone deferred).
+- Exact FAISS Flat, not HNSW; no remote ANN (Qdrant / Pinecone deferred). ANN approximation error would surface as missed-fresh (already split in the metrics), not as staleness escaping the join — a degraded graph returning a deleted vector still fails J.
+- The join cost is not measured. The harness bulk-fetches the source once and the store is immutable during the query phase, so the timed join is in-memory dict lookups. A production join — batched reads against a live, concurrently mutating store on the read path, inside the latency budget — is the entire engineering cost and is absent here.
+- Repair mutates index payloads from the read path while retaining the original indexed_at: a fabricated-coherent entry and a concurrency hazard outside the harness.
+- Single seeded run per scenario; no variance estimates. The committed tables are aggregates, so confidence intervals would require re-running the harness.
 - Extractive citation, not an LLM. A generator can still ignore a fresh span or invent a citation.
 - Deleted-entity queries are answered from live neighbors under drop (173/1000). Fresh-but-wrong. Missing-source ⇒ abstain is future work.
 - `all-faults` is a composed stress bound, not a production mix.
