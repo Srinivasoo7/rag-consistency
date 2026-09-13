@@ -72,9 +72,9 @@ retrieval fix. **Repair** also zeroes stale-hit@5 and recovers recall
 better than drop on the harsh faults (all-faults R@5 0.505 vs 0.3865;
 correctness ex-deleted 0.582 vs 0.519 — within striking distance of the
 competent 0.601), but `repair@d0s` on a healthy pipeline is a footgun:
-competent R@5 collapses 0.5897 → 0.2733 and correctness 0.497 → 0.343,
-because Δ=0 demands a zero-lag pipeline and drops laggy-but-coherent
-hits (competent correctness ex-deleted 0.601 → 0.415). The paper's operating points are `drop@5s`/`drop@60s` and repair at
+competent R@5 collapses 0.5897 → 0.2733 and correctness 0.601 → 0.415
+(ex-deleted), because Δ=0 demands a zero-lag pipeline and drops
+laggy-but-coherent hits. The paper's operating points are `drop@5s`/`drop@60s` and repair at
 a Δ the pipeline can actually meet — never Δ=0.
 
 ## A freshness SLA is enforceable iff Δ ≥ pipeline lag T
