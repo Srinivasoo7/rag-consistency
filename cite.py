@@ -9,10 +9,13 @@ Metrics (ground truth = the source-of-truth row at eval time):
   stale_cite      emitted chunk fails the version join (stale or deleted)
   abstain         nothing emitted
   answer_correct  emitted text contains the current gold answer
-                  (deleted-doc queries: correct iff abstain)
+                  (deleted-doc queries are never correct under the
+                  answering policy; abstain-on-missing-source is
+                  future work)
 
 Language discipline: stale-citation rate is a GENERATION-layer metric over
-emitted answers. It is not the same as retrieval-layer stale-hit@k.
+all queries; stale_citation_rate_emitted conditions on emitted answers
+only. Neither is retrieval-layer stale-hit@k.
 """
 from __future__ import annotations
 

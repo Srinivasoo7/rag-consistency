@@ -46,7 +46,17 @@ class SourceStore:
     def __init__(self, backend: str = "auto", path: str = "data/source.db",
                  pg_dsn: str | None = None):
         if backend == "auto":
-            backend = "postgres" if self._pg_reachable(pg_dsn) else "sqlite"
+            dsn_set = pg_dsn is not None or "RAGC_PG_DSN" in os.environ
+            if self._pg_reachable(pg_dsn):
+                backend = "postgres"
+            elif dsn_set:
+                # Fail loud: an explicit Postgres DSN that cannot be reached
+                # must not silently degrade to SQLite (recorded 2026-09-12).
+                raise RuntimeError(
+                    "RAGC_PG_DSN is set but Postgres is unreachable; "
+                    "refusing silent SQLite fallback")
+            else:
+                backend = "sqlite"
         self.backend = backend
         if backend == "postgres":
             import psycopg
