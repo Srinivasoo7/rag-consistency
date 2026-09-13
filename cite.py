@@ -17,17 +17,20 @@ emitted answers. It is not the same as retrieval-layer stale-hit@k.
 from __future__ import annotations
 
 
-def _ground_truth_stale(store, cid, meta):
-    row = store.get_chunk(cid)
+def _ground_truth_stale(rows, cid, meta):
+    row = rows.get(cid)
     if row is None or row["deleted"]:
         return True
     return (meta["source_version"] != row["source_version"]
             or meta["content_hash"] != row["content_hash"])
 
 
-def extractive_cite(rec, store, index, join_applied: bool):
+def extractive_cite(rec, store, index, join_applied: bool, rows=None):
     """rec: per-query record from pipeline.run_queries.
-    Returns {emitted_cid, abstain, stale_cite, answer_correct, emitted_text}."""
+    Returns {kind, emitted_cid, abstain, stale_cite, answer_correct,
+    emitted_text}."""
+    if rows is None:
+        rows = {cid: store.get_chunk(cid) for cid in store.all_chunk_ids()}
     q = rec["query"]
     hits = rec["hits"]
     if join_applied:
@@ -41,7 +44,7 @@ def extractive_cite(rec, store, index, join_applied: bool):
                 "answer_correct": q["kind"] == "deleted", "emitted_text": ""}
     cid, score, meta, _ok, _action = cands[0]
     text = index.payload.get(cid, "")
-    stale = _ground_truth_stale(store, cid, meta)
+    stale = _ground_truth_stale(rows, cid, meta)
     if q["kind"] == "deleted":
         correct = False  # any emission on a deleted doc is wrong
     else:

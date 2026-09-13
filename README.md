@@ -24,8 +24,10 @@ bound.** This repo is a *harness*, not a framework.
   exact search); entries carry `{doc_id, source_version, content_hash,
   indexed_at}` plus the indexed payload text (stale payloads persist until
   upserted — this is what a naive generator would cite).
-- `index/embedder.py` — all-MiniLM-L6-v2 on CPU if available, else the
-  deterministic hashed TF-IDF fallback (`HashEmbedder`).
+- `index/embedder.py` — hashed TF-IDF (`HashEmbedder`, primary: best
+  retrieval on this entity-centric corpus, matches milestone 1) or
+  all-MiniLM-L6-v2 on CPU (`RAGC_EMBEDDER=minilm`; weaker here — see
+  RUNLOG.md — kept as a robustness check, not the headline).
 - `mutator.py` — synthetic corpus (1k docs x 3 chunks, factoid Q/A) and the
   mutation generator: in-place edit, superseding rewrite, delete, no-op.
 - `faults.py` — first-class fault injector: drop update, no tombstone,
@@ -56,10 +58,13 @@ bound.** This repo is a *harness*, not a framework.
   all-faults as labeled upper bound).
 - `data/delay_cdf_table.md` — delay faults via time-to-visible/purge CDFs.
 - `data/denominators.md` — corpus/query denominators + provenance.
-- `data/join_before_after.md` — the paper's key figure (retrieval layer).
-- `data/citation_before_after.md` — generation-layer stale-citation
+- `data/join_before_after_hash.md` — the paper's key figure (retrieval
+  layer, primary embedder). `_minilm` variants are the robustness check.
+- `data/citation_before_after_hash.md` — generation-layer stale-citation
   before/after, overall and by query kind.
-- `data/delay_sla_curve.md` — SLA enforceability: delta vs pipeline lag.
+- `data/delay_sla_curve_hash.md` — SLA enforceability: delta vs pipeline lag.
+- `data/embedder_comparison.md` — hashed TF-IDF vs MiniLM: deltas hold
+  except partial-2of3 (attenuated under MiniLM; see RUNLOG.md).
 
 ## Reproduce from a fresh shell
 
@@ -67,11 +72,11 @@ bound.** This repo is a *harness*, not a framework.
 cd ~/workspace/rag-consistency
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-# sentence-transformers is optional but recommended for publication-grade
-# absolute recall numbers (deltas hold with the hashed fallback):
+# sentence-transformers is optional (robustness check only — the hashed
+# embedder is primary on this corpus; see RUNLOG.md):
 .venv/bin/pip install sentence-transformers
 .venv/bin/python run_baseline.py --docs 1000   # milestone 1 (corrected)
-.venv/bin/python run_join.py --docs 1000       # milestone 2
+RAGC_EMBEDDER=hash .venv/bin/python run_join.py --docs 1000 --tag hash  # milestone 2
 ```
 
 Optional: point at Postgres instead of SQLite:

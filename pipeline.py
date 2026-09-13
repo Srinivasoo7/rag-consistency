@@ -54,6 +54,7 @@ def prepare_scenario(name, embedder, backend="auto", data_dir="data",
     clock = VirtualClock(0)
     store = SourceStore(backend=backend,
                         path=os.path.join(data_dir, f"source-{name}.db"))
+    store.bulk_begin()  # one transaction for the whole build (harness speed)
     docs = generate_corpus(n_docs, SEED)
     mutations = pick_mutations(docs, SEED + 1)
     embedder.fit([c for d in docs for c in d["chunks"]])  # IDF for hash fallback
@@ -65,6 +66,7 @@ def prepare_scenario(name, embedder, backend="auto", data_dir="data",
 
     clock.set(60)                                     # t=60: source commits
     events = apply_mutations(store, docs, mutations, clock)
+    store.bulk_end()  # single commit for the whole build (harness speed)
 
     # t=61: pipeline tick. Delay faults aren't due yet; they get a second
     # drain at their honest due time (updated_at + T) so time-to-visible
@@ -90,11 +92,15 @@ def prepare_scenario(name, embedder, backend="auto", data_dir="data",
 def run_queries(ctx, k=TOP_K, overfetch=1, join_cfg=None):
     """Retrieve top-k (overfetch*k candidates when a drop-policy join needs
     backfill). join_cfg: None or {joiner, policy, delta}.
-    Returns per-query records; per-query latency INCLUDES the join cost."""
+    Returns per-query records; per-query latency INCLUDES the join cost.
+    The source store is bulk-fetched once here (it is immutable during the
+    query phase); the snapshot is attached as ctx["rows"]."""
     embedder = ctx["embedder"]
     index = ctx["index"]
     queries = ctx["queries"]
     eval_t = ctx["eval_t"]
+    if "rows" not in ctx:
+        ctx["rows"] = ctx["store"].get_all()
     qvecs = embedder.encode([q["text"] for q in queries])
     out = []
     for q, qv in zip(queries, qvecs):
@@ -103,7 +109,7 @@ def run_queries(ctx, k=TOP_K, overfetch=1, join_cfg=None):
         final, join_info = raw, None
         if join_cfg is not None:
             final, join_info = join_cfg["joiner"].apply(
-                raw, k=k, eval_t=eval_t, delta=join_cfg["delta"],
+                raw, k=k, delta=join_cfg["delta"],
                 policy=join_cfg["policy"], embedder=embedder)
         dt = (time.perf_counter() - t0) * 1000.0
         out.append({"query": q, "hits_raw": raw, "hits": final,

@@ -81,7 +81,7 @@ def main():
                    for r in recs]
         m = metrics.evaluate(
             triples, ctx["index"], ctx["store"], TOP_K,
-            denoms=ctx["denoms"],
+            denoms=ctx["denoms"], rows=ctx["rows"],
             provenance=_provenance(embedder, ctx["store"].backend))
         m["scenario"] = name
         m["fault"] = ctx["fault"].get("mode")

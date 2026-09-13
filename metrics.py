@@ -29,22 +29,25 @@ def _ndcg(hits, gold_ids, k):
     return dcg / idcg if idcg else 0.0
 
 
-def evaluate(results, index, store, k, denoms=None, provenance=None):
+def evaluate(results, index, store, k, denoms=None, provenance=None, rows=None):
     """results: list of (query, hits, latency_s).
     denoms: dict of corpus/query denominators, passed through to output.
     provenance: dict {seed, embedder_backend, embedder_dim, faiss_index,
                      store_backend}, passed through to output.
+    rows: optional bulk snapshot {chunk_id: row} from store.get_all(); when
+          given, all per-hit lookups are dict hits (no round-trips).
 
     Language discipline (reviewer-mandated): stale_hit_rate is the
     RETRIEVAL-LAYER stale-hit@k. No answers are generated in milestone 1,
     so stale-hit != stale-citation rate.
     """
+    if rows is None:
+        rows = {cid: store.get_chunk(cid) for cid in store.all_chunk_ids()}
     # ---- chunk-level coherence -------------------------------------
     ttv, never_visible = [], 0
     ttp, never_purged = [], 0
     purge_at = {p["chunk_id"]: p["purged_at"] for p in index.purge_log}
-    for cid in store.all_chunk_ids():
-        row = store.get_chunk(cid)
+    for cid, row in rows.items():
         meta = index.meta.get(cid)
         if row["deleted"]:
             if cid in purge_at:
@@ -66,13 +69,13 @@ def evaluate(results, index, store, k, denoms=None, provenance=None):
         lat.append(dt * 1000)
         for cid, _score, meta in hits:
             total_hits += 1
-            row = store.get_chunk(cid)
+            row = rows.get(cid)
             if row is None:
                 stale_hits += 1  # in index, gone from source entirely
             elif row["deleted"] or row["source_version"] > meta["source_version"]:
                 stale_hits += 1
         gold = [c for c in q["gold_chunk_ids"]
-                if not (store.get_chunk(c) or {}).get("deleted")]
+                if not (rows.get(c) or {}).get("deleted")]
         if gold:
             got = {cid for cid, _, _ in hits}
             n_scored += 1
@@ -86,7 +89,7 @@ def evaluate(results, index, store, k, denoms=None, provenance=None):
                 # this chunk) or by the embedder (index coherent but the
                 # chunk wasn't retrieved)? Reviewer-mandated so embedder
                 # weakness can't be misread as a coherence bug.
-                row = store.get_chunk(c)
+                row = rows[c]
                 meta = index.meta.get(c)
                 coherent = (meta is not None
                             and meta["source_version"] == row["source_version"]

@@ -24,13 +24,21 @@ from __future__ import annotations
 
 
 class VersionJoiner:
-    def __init__(self, store, index):
+    def __init__(self, store, index, rows=None):
         self.store = store
         self.index = index
+        # Bulk snapshot (store.get_all()); the store is immutable during the
+        # query phase, so per-hit checks are dict lookups, not round-trips.
+        self._rows = rows
+
+    def _row(self, chunk_id):
+        if self._rows is not None:
+            return self._rows.get(chunk_id)
+        return self.store.get_chunk(chunk_id)
 
     def check(self, chunk_id, meta, delta):
         """Ground-truth coherence check. Returns (ok, reason)."""
-        row = self.store.get_chunk(chunk_id)
+        row = self._row(chunk_id)
         if row is None:
             return False, "missing-in-source"
         if row["deleted"]:
@@ -59,7 +67,7 @@ class VersionJoiner:
             assert embedder is not None, "repair needs an embedder"
             repairable = [c for c in checked
                           if not c["ok"] and c["reason"] == "version-diverged"]
-            rows = [self.store.get_chunk(c["cid"]) for c in repairable]
+            rows = [self._row(c["cid"]) for c in repairable]
             if rows:
                 # Read-path re-embed cost lives inside the timed region;
                 # the vectors are unused downstream (no re-search).

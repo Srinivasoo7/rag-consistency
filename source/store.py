@@ -109,6 +109,20 @@ class SourceStore:
         if self.backend == "sqlite":
             self._conn.commit()
 
+    def bulk_begin(self):
+        """Batch many writes into one transaction (harness speed only;
+        no effect on measured numbers)."""
+        if self.backend == "postgres":
+            self._conn.autocommit = False
+        # sqlite3 already defers commit until bulk_end
+
+    def bulk_end(self):
+        if self.backend == "postgres":
+            self._conn.commit()
+            self._conn.autocommit = True
+        else:
+            self._conn.commit()
+
     # -- reads ----------------------------------------------------------
     def get_chunk(self, chunk_id):
         ph = self._ph
@@ -125,6 +139,13 @@ class SourceStore:
     def all_chunk_ids(self):
         self._cur.execute("SELECT chunk_id FROM chunks")
         return [r[0] for r in self._cur.fetchall()]
+
+    def get_all(self):
+        """Bulk snapshot: {chunk_id: row}. The store is immutable during the
+        query phase, so one snapshot per scenario replaces thousands of
+        per-hit round-trips."""
+        self._cur.execute("SELECT * FROM chunks")
+        return {r[0]: self._row(r) for r in self._cur.fetchall()}
 
     def count(self):
         self._cur.execute("SELECT COUNT(*) FROM chunks")

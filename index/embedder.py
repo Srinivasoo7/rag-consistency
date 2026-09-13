@@ -8,6 +8,7 @@ embedding quality, only on version coherence between the two stores.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 
 import numpy as np
@@ -60,14 +61,17 @@ class Embedder:
         self.backend = "hash"
         self.dim = DIM
         self._st = None
-        try:
-            from sentence_transformers import SentenceTransformer
-            self._st = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
-            self.dim = self._st.get_sentence_embedding_dimension()
-            self.backend = "minilm"
-        except Exception as e:  # offline / no torch / download failed
-            print(f"[embedder] sentence-transformers unavailable ({e}); "
-                  f"using hashed fallback")
+        force = os.environ.get("RAGC_EMBEDDER", "auto")  # hash|minilm|auto
+        if force in ("auto", "minilm"):
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._st = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+                self.dim = self._st.get_sentence_embedding_dimension()
+                self.backend = "minilm"
+            except Exception as e:  # offline / no torch / download failed
+                print(f"[embedder] sentence-transformers unavailable ({e}); "
+                      f"using hashed fallback")
+        if self._st is None:
             self._hash = HashEmbedder(DIM)
 
     def encode(self, texts):

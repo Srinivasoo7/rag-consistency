@@ -1,5 +1,93 @@
 # RUNLOG — environment substitutions and decisions
 
+## 2026-09-12: milestone 2
+
+### Embeddings: MiniLM attempt via PyTorch CPU wheels (IN PROGRESS)
+- `sentence-transformers` 6.0.1 installed successfully after retrying `pip`
+  through the PyTorch CPU wheel index (`--index-url
+  https://download.pytorch.org/whl/cpu`); torch 2.x CPU-only in the venv.
+- `all-MiniLM-L6-v2` weight download initially failed: the sandbox's
+  proxy env (`HTTP_PROXY=...hatch-egress-proxy:3128`) plus `no_proxy`
+  entries like `[::1]` make `httpx` (via huggingface_hub) raise
+  `InvalidURL: Invalid port: ':1]'` when building its client.
+- Workaround that worked: keep the proxy vars (direct TLS egress is
+  blocked: `SSL: WRONG_VERSION_NUMBER`) but sanitize `no_proxy` to
+  `localhost,127.0.0.1`. Model downloaded and loads (dim=384).
+- `index/embedder.py::Embedder` now honors `RAGC_EMBEDDER=hash|minilm|auto`
+  so hash and MiniLM suites can be produced without uninstalling packages.
+
+### MiniLM result on this corpus (SURPRISE — honest bad news)
+- Full 1k-doc MiniLM baseline finished (2 min, postgres):
+  recall@5 = 0.18 vs hashed TF-IDF 0.59. MiniLM is WORSE here.
+- Cause (probed at 50 docs: perfect retrieval; degrades with scale):
+  the corpus has ~143 docs per template with unique ID-like entity names
+  (`Aurora X1-0000` vs `Aurora X1-0142`); MiniLM's subword embeddings
+  barely discriminate the numeric suffix, while TF-IDF exact-matches it.
+- Cross-scenario stale-hit deltas mostly hold (drop 0.0734->0.0504,
+  no-tombstone 0.2428->0.2042, crash 0.3892->0.3766,
+  all-faults 0.4922->0.4492) but partial-2of3 attenuates 0.1214->0.0:
+  when the embedder can't retrieve the target doc, it retrieves
+  coherent-but-irrelevant chunks and the coherence signal is masked.
+- Decision: hashed TF-IDF is the PRIMARY embedder for the mechanism
+  tables (cleanest signal, matches milestone 1); MiniLM is the
+  robustness check. `compare_embedders.py` writes
+  `data/embedder_comparison.md`.
+
+### Postgres reinstall after VM replacement
+- The VM was replaced mid-session: /usr, /etc/postgresql, /var/lib
+  vanished. Reinstalled `postgresql` via apt, recreated database `ragc`,
+  re-applied the localhost `trust` auth fix. Bulk snapshot optimization
+  kept run times at ~2-3 min per 10-scenario suite.
+
+### Milestone 2 mechanism results (hash embedder, 1k docs, postgres)
+- `run_join.py` grid (6 configs x 10 scenarios) runs end-to-end in ~100s.
+  Two interface bugs fixed (pipeline passed `eval_t` to `joiner.apply`
+  which doesn't take it; run_one assumed 5-tuple hits when join is off).
+- Retrieval layer (`data/join_before_after_hash.md`): drop@d5s and
+  drop@d60s drive stale-hit@5 to 0.0000 in EVERY fault scenario
+  (0.0734/0.2428/0.1214/0.3892/0.4922 -> 0). Recall tax is visible
+  (crash 0.59->0.43, all-faults 0.58->0.39).
+- Generation layer (`data/citation_before_after_hash.md`): extractive
+  stale-citation rate -> 0.0000 in every fault scenario (crash
+  0.371->0, all-faults 0.460->0); answer-correct improves (crash
+  0.369->0.425, all-faults 0.359->0.429).
+- SLA enforceability (`data/delay_sla_curve_hash.md`): drop@d{delta}
+  preserves recall iff delta >= pipeline lag T; below that recall
+  collapses (delay-30s: drop@d5s 0.27 vs drop@d60s 0.59). The collapse
+  IS the measurement of an unenforceable SLA.
+- MiniLM join grid running as robustness check (--tag minilm).
+- MiniLM join grid DONE (11m45s): drop@d5s drives stale-hit@5 and
+  stale-citation to 0.0000 in every scenario where they were nonzero
+  (drop 0.0504->0, no-tombstone 0.2042->0, crash 0.3766->0, all-faults
+  0.4492->0). Mechanism holds under both embedders.
+- Determinism: join "off" configs exactly reproduce the standalone
+  baseline (stale_hit_rate, recall_at_k, missed_fresh_rate all match).
+- Qdrant NOT added: steps 1-3 are complete and clean, but the mechanism
+  is validated on FAISS and the VM was already replaced once mid-session;
+  a second vector store remains a later validation leg, explicitly
+  deferred.
+
+### Postgres TCP auth (FIXED)
+- `SourceStore(backend="auto")` silently fell back to SQLite: TCP
+  connections to 127.0.0.1:5432 as user `postgres` hit `scram-sha-256`
+  in pg_hba.conf and hung on a password prompt (no password is set).
+- Fix: set `host ... 127.0.0.1/32` and `::1/128` lines to `trust` and
+  reloaded (localhost-only, synthetic data). Backup at
+  `/etc/postgresql/16/main/pg_hba.conf.bak`.
+- A 1k-doc baseline re-run on SQLite was killed mid-run (scenario 4/10,
+  ~50 min projected); SQLite numbers would have been valid but the run
+  was too slow and milestone 1 used Postgres.
+
+### Bulk write/read optimization (harness speed only)
+- `SourceStore.bulk_begin()/bulk_end()` wrap each scenario build in one
+  transaction; `get_all()` bulk-fetches the immutable query-phase
+  snapshot once; `metrics.evaluate`, `VersionJoiner`, and `cite.py` take
+  the snapshot instead of per-hit PG round-trips.
+- Effect: corrected 10-scenario TF-IDF baseline now finishes in ~3 min
+  (was >11 min and killed). No measured number changed: the re-run
+  reproduces milestone-1 stale-hit rates exactly (0.0000 / 0.0734 /
+  0.2428 / 0.1214 / 0.3892 / 0.4922).
+
 ## 2026-09-12: initial build (milestone 1)
 
 ### Source-of-truth store: PostgreSQL 16 (no substitution needed)
